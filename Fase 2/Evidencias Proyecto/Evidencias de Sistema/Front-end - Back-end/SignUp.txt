@@ -1,0 +1,222 @@
+import { StyleSheet, Text, View, ImageBackground, Pressable, Alert } from 'react-native';
+import React, { useRef, useState } from 'react';
+import ScreenWrapper from '../components/ScreenWrapper';
+import { theme } from '../constants/theme';
+import Icon from '../assets/icons';
+import { StatusBar } from 'expo-status-bar';
+import BackButton from '../components/BackButton';
+import { useRouter } from 'expo-router';
+import { hp, wp } from '../helpers/common';
+import Input from '../components/Input';
+import Button from '../components/Button';
+import { supabase } from '../lib/supabase';
+
+const SignUp = () => {
+  const router = useRouter();
+  const emailRef = useRef('');
+  const nameRef = useRef('');
+  const passwordRef = useRef('');
+  const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState({ email: '', name: '', password: '' });
+
+  const validateEmail = (value) => {
+    const emailRegex = /\S+@\S+\.\S+/;
+    if (!value) {
+      return 'El correo es obligatorio';
+    } else if (!emailRegex.test(value)) {
+      return 'Introduce un correo válido';
+    }
+    return '';
+  };
+
+  const validateName = (value) => {
+    if (!value) {
+      return 'El nombre de usuario es obligatorio';
+    }
+    return '';
+  };
+
+  const validatePassword = (value) => {
+    if (!value) {
+      return 'La contraseña es obligatoria';
+    } else if (value.length < 8) {
+      return 'La contraseña debe tener al menos 8 caracteres';
+    }
+    return '';
+  };
+
+  const onSubmit = async () => {
+    const email = emailRef.current.trim();
+    const name = nameRef.current.trim();
+    const password = passwordRef.current.trim();
+
+    const emailError = validateEmail(email);
+    const nameError = validateName(name);
+    const passwordError = validatePassword(password);
+
+    setErrors({ email: emailError, name: nameError, password: passwordError });
+
+    if (emailError || nameError || passwordError) {
+      Alert.alert('Error', 'Por favor, corrige los errores antes de continuar.');
+      return;
+    }
+
+    setLoading(true);
+
+    const { data: { session }, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          name,
+        },
+      },
+    });
+
+    setLoading(false);
+
+    if (error) {
+      Alert.alert('Registro', error.message);
+    } else {
+      Alert.alert('Registro', '¡Registro exitoso!');
+    }
+  };
+
+  return (
+    <ScreenWrapper bg="white">
+      <StatusBar style="dark" />
+      <ImageBackground
+        source={require('../assets/images/Nito.jpg')}
+        style={{ flex: 1 }}
+        resizeMode="cover"
+      >
+        <View style={styles.backButtonContainer}>
+          <BackButton router={router} />
+        </View>
+
+        <View style={styles.overlay} />
+
+        <View style={styles.container}>
+          {/* Bienvenida */}
+          <View style={styles.welcomeContainer}>
+            <Text style={styles.welcomeText}>¡Comencemos!</Text>
+          </View>
+
+          {/* Formulario de registro */}
+          <View style={styles.form}>
+            <Text style={{ fontSize: hp(1.6), color: '#FFFFFF' }}>
+              Por favor, rellena todos los campos
+            </Text>
+            <Input
+              icon={<Icon name="user" size={26} strokeWidth={1.6} />}
+              placeholder="Nombre de Usuario"
+              onChangeText={(value) => (nameRef.current = value)}
+              containerStyle={{
+                backgroundColor: '#FFFFFF',
+                borderColor: errors.name ? theme.colors.roseLight : '#FF4500',
+              }}
+              inputStyle={{ color: '#000000' }}
+              onBlur={() => setErrors({ ...errors, name: validateName(nameRef.current) })}
+            />
+            {errors.name ? <Text style={styles.errorText}>{errors.name}</Text> : null}
+
+            <Input
+              icon={<Icon name="mail" size={26} strokeWidth={1.6} />}
+              placeholder="Correo Electrónico"
+              onChangeText={(value) => (emailRef.current = value)}
+              containerStyle={{
+                backgroundColor: '#FFFFFF',
+                borderColor: errors.email ? theme.colors.roseLight : '#FF4500',
+              }}
+              inputStyle={{ color: '#000000' }}
+              onBlur={() => setErrors({ ...errors, email: validateEmail(emailRef.current) })}
+            />
+            {errors.email ? <Text style={styles.errorText}>{errors.email}</Text> : null}
+
+            <Input
+              icon={<Icon name="lock" size={26} strokeWidth={1.6} />}
+              placeholder="Contraseña"
+              secureTextEntry
+              onChangeText={(value) => (passwordRef.current = value)}
+              containerStyle={{
+                backgroundColor: '#FFFFFF',
+                borderColor: errors.password ? theme.colors.roseLight : '#FF4500',
+              }}
+              inputStyle={{ color: '#000000' }}
+              onBlur={() => setErrors({ ...errors, password: validatePassword(passwordRef.current) })}
+            />
+            {errors.password ? <Text style={styles.errorText}>{errors.password}</Text> : null}
+
+            {/* Botón de registro */}
+            <Button
+              title={'Registrarse'}
+              loading={loading}
+              onPress={onSubmit}
+              buttonStyle={{ backgroundColor: '#FF4500' }}
+            />
+          </View>
+
+          {/* Footer */}
+          <View style={styles.footer}>
+            <Text style={styles.footerText}>¿Ya tienes una cuenta?</Text>
+            <Pressable onPress={() => router.push('login')}>
+              <Text style={[styles.footerText, { color: '#FF4500', fontWeight: theme.fonts.semibold }]}>
+                Iniciar Sesión
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </ImageBackground>
+    </ScreenWrapper>
+  );
+};
+
+export default SignUp;
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: wp(5),
+  },
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  welcomeContainer: {
+    marginBottom: hp(2),
+    alignItems: 'center',
+  },
+  welcomeText: {
+    fontSize: hp(4),
+    fontWeight: theme.fonts.bold,
+    color: '#FFFFFF',
+  },
+  form: {
+    marginTop: hp(3),
+    gap: 25,
+  },
+  footer: {
+    marginTop: hp(5),
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 5,
+  },
+  footerText: {
+    textAlign: 'center',
+    color: 'white',
+    fontSize: hp(1.8),
+  },
+  backButtonContainer: {
+    position: 'absolute',
+    top: hp(6),
+    left: wp(5),
+    zIndex: 1,
+  },
+  errorText: {
+    color: theme.colors.roseLight,
+    fontSize: hp(1.7),
+    marginBottom: hp(1),
+  },
+});

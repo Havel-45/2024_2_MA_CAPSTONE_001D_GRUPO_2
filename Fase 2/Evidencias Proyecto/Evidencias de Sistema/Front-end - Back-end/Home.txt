@@ -1,0 +1,423 @@
+import { Alert, Button, Pressable, StyleSheet, Text, ImageBackground, View, BackHandler, FlatList, RefreshControl, Modal } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import ScreenWrapper from '../../components/ScreenWrapper';
+import { useAuth } from '../../contexts/AuthContext';
+import { supabase } from '../../lib/supabase';
+import { hp, wp } from '../../helpers/common';
+import { theme } from '../../constants/theme';
+import Icon from '../../assets/icons';
+import { useRouter } from 'expo-router';
+import Avatar from '../../components/Avatar';
+import { fetchPosts } from '../../services/postService';
+import PostCard from '../../components/PostCard';
+import Loading from '../../components/Loading';
+import { getUserData } from '../../services/userService';
+import { Picker } from '@react-native-picker/picker';
+
+var limit = 0;
+
+const Home = () => {
+  const { user, setAuth } = useAuth();
+  const router = useRouter();
+
+  const [posts, setPosts] = useState([]);
+  const [hasMore, setHasMore] = useState(true);
+  const [refreshing, setRefreshing] = useState(false); 
+  const [gameId, setGameId] = useState(4); 
+  const [category, setCategory] = useState("");
+  const [categoryModalVisible, setCategoryModalVisible] = useState(false);
+  const categories = [
+    "Lore",
+    "Guías y Trucos",
+    "Teorías",
+    "Debates",
+    "Noticias",
+    "Builds",
+    "Mods",
+    "Eventos Especiales"
+  ];
+
+  const handlePostEvent = async (payload) => {
+    if (payload.eventType === 'INSERT' && payload.new?.id) {
+      let newPost = { ...payload.new };
+      let res = await getUserData(newPost.userId);
+      newPost.user = res.success ? res.data : {};
+      setPosts(prevPosts => [newPost, ...prevPosts]);
+    }
+  };
+
+  const handleCommentEvent = (payload) => {
+    if (payload.eventType === 'INSERT' && payload.new?.postId) {
+      setPosts(prevPosts => prevPosts.map(post => {
+        if (post.id === payload.new.postId) {
+          return {
+            ...post,
+            commentCount: post.commentCount + 1
+          };
+        }
+        return post;
+      }));
+    }
+  };
+
+  useEffect(() => {
+    const postChannel = supabase
+      .channel('posts')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, handlePostEvent)
+      .subscribe();
+
+    const commentChannel = supabase
+      .channel('comments')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'comments' }, handleCommentEvent)
+      .subscribe();
+
+    getPosts();
+
+    return () => {
+      supabase.removeChannel(postChannel);
+      supabase.removeChannel(commentChannel);
+    };
+  }, [gameId, category]); 
+
+  const getPosts = async (reset = false) => {
+    
+    if (reset) {
+        setPosts([]);
+        limit = 10;
+        setHasMore(true);
+    }
+
+    if (!hasMore) return;
+    limit += 10;
+
+    console.log('fetching posts: ', limit, 'gameId:', gameId, 'category:', category);
+    
+    
+    let res = await fetchPosts(limit, null, gameId, category);
+    
+    if (res.success) {
+        // Filtrar los posts duplicados en caso de que ya existan posts
+        const newPosts = res.data.filter(newPost => 
+            !posts.some(existingPost => existingPost.id === newPost.id)
+        );
+        
+        setPosts(reset ? newPosts : [...posts, ...newPosts]);
+        
+        // Verificar si hay más posts por cargar
+        if (newPosts.length < limit) setHasMore(false);
+    }
+};
+
+// Manejador del cambio de categoría desde el botón flotante
+const handleCategoryChange = (selectedCategory) => {
+    setCategory(selectedCategory);
+    getPosts(true);  
+  
+};
+
+const handleClearCategoryFilter = () => {
+  setCategory("");  // Resetea la categoría
+  setCategoryModalVisible(false); // Cierra el modal
+  getPosts(); // Refresca la lista de posts con solo el filtro de gameId
+};
+
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    limit = 5;
+    let res = await fetchPosts(limit, null, gameId, category || null);
+    if (res.success) {
+      const uniquePosts = [
+        ...new Map(res.data.map(post => [post.id, post])).values(),
+      ];
+      setPosts(uniquePosts);
+      setHasMore(true);
+    }
+    setRefreshing(false);
+  };
+
+  const onLogout = async () => {
+    setAuth(null);
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+        Alert.alert('Sign out', "Error signing out");
+    }
+  };
+
+  const handleBackPress = () => {
+    Alert.alert(
+      'Salir de la aplicación',
+      '¿Estás seguro de que deseas salir?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Salir', onPress: () => BackHandler.exitApp() }
+      ],
+      { cancelable: true }
+    );
+    return true;
+  };
+
+  useEffect(() => {
+    BackHandler.addEventListener('hardwareBackPress', handleBackPress);
+    return () => BackHandler.removeEventListener('hardwareBackPress', handleBackPress);
+  }, []);
+
+  return (
+      <>
+      {posts.map(post => (
+        <PostCard key={post.id} post={post} />
+        ))}
+      <ScreenWrapper bg="white">
+        <ImageBackground
+          source={require('../../assets/images/Home5.jpg')}
+          style={styles.backgroundImage}
+        >
+          <View style={styles.overlay} />
+
+          <View style={styles.container}>
+            <View style={styles.header}>
+              <Text style={styles.title}>Hollow Mates</Text>
+              <View style={styles.icons}>
+              
+              {user?.type === 'admin' && (
+                <Pressable onPress={() => router.push('adminDashboard')}>
+                  <Icon name="chart" size={hp(3.2)} strokeWidth={2} color='white' />
+                </Pressable>)}
+                <Pressable onPress={() => router.push('notifications')}>
+                  <Icon name="heart" size={hp(3.2)} strokeWidth={2} color='white' />
+                </Pressable>
+                <Pressable onPress={() => router.push('newPost')}>
+                  <Icon name="plus" size={hp(3.2)} strokeWidth={2} color='white' />
+                </Pressable>
+                <Pressable onPress={() => router.push('profile')}>
+                  <Avatar
+                    uri={user?.image}
+                    size={hp(4.3)}
+                    rounded={theme.radius.sm}
+                    style={{ borderWidth: 2 }}
+                  />
+                </Pressable>
+              </View>
+            </View>
+
+            {/* Picker de filtro */}
+            <Picker
+              selectedValue={gameId}
+              style={{ width: wp(90), color: 'white', marginVertical: hp(1) }}
+              onValueChange={(itemValue) => {
+                setGameId(itemValue);
+                setHasMore(true);
+                limit = 0;
+                getPosts();
+              }}
+            >
+              
+              <Picker.Item label="Dark Souls" value={1} />
+              <Picker.Item label="Dark Souls 2" value={2} />
+              <Picker.Item label="Dark Souls 3" value={3} />
+              <Picker.Item label="General" value={4} />
+            </Picker>
+            
+             {/* Botón flotante */}
+             <Pressable style={styles.floatingButton} onPress={() => setCategoryModalVisible(true)}>
+                <Icon name="heart" size={hp(3.2)} color="white" />
+              </Pressable>
+
+            {/* Modal de categorías */}
+            <Modal
+              transparent={true}
+              visible={categoryModalVisible}
+              onRequestClose={() => setCategoryModalVisible(false)}
+              animationType="slide"
+            >
+              <View style={styles.modalOverlay}>
+                <View style={styles.modalContent}>
+                  <Text style={styles.modalTitle}>Selecciona una categoría</Text>
+                  {categories.map(cat => (
+                    <Pressable
+                      key={cat}
+                      onPress={() => {
+                        handleCategoryChange(cat);  // Usa el manejador aquí
+                        setCategoryModalVisible(false);
+                      }}
+                      style={styles.categoryOption}
+                    >
+                      <Text style={styles.categoryText}>{cat}</Text>
+                    </Pressable>
+                  ))}
+                  {/* Botón para borrar filtros */}
+                  <Pressable
+                    onPress={() => {
+                      setCategory(""); // Resetea la categoría
+                      setCategoryModalVisible(false); // Cierra el modal
+                      getPosts(); // Refresca la lista de posts con solo el filtro de gameId
+                    }}
+                    style={[styles.categoryOption, { backgroundColor: 'lightgray' }]}
+                  >
+                    <Text style={styles.categoryText}>Borrar filtros</Text>
+                  </Pressable>
+                  <Pressable onPress={() => setCategoryModalVisible(false)} style={styles.closeButton}>
+                    <Text style={styles.closeButtonText}>Cerrar</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </Modal>
+            
+
+            <FlatList
+              data={posts}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.listStyle}
+              keyExtractor={item => item.id.toString()}
+              renderItem={({ item }) => (
+                <PostCard
+                  item={item}
+                  currentUser={user}
+                  router={router}
+                />
+              )}
+              onEndReached={() => {
+                getPosts();
+                console.log('got to the end');
+              }}
+              onEndReachedThreshold={0}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={onRefresh}
+                  tintColor={theme.colors.text}
+                />
+              }
+              ListFooterComponent={hasMore ? (
+                <View style={{ marginVertical: posts.length === 0 ? 200 : 30 }}>
+                  <Loading />
+                </View>
+              ) : (
+                <View style={{ marginVertical: 30 }}>
+                  <Text style={styles.noPosts}>No hay más posts</Text>
+                </View>
+              )}
+            />
+          </View>
+        </ImageBackground>
+      </ScreenWrapper>
+      </>
+    );
+};
+
+export default Home;
+    
+    const styles = StyleSheet.create({
+      container: {
+        flex: 1,
+      },
+      backgroundImage: {
+        flex: 1,
+        resizeMode: 'cover',
+      },
+      overlay: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)', 
+      },
+      header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 10,
+        marginHorizontal: wp(4),
+      },
+      title: {
+        marginTop: hp(2.5),
+        color: 'white',
+        fontSize: hp(3.2),
+        fontWeight: theme.fonts.bold,
+      },
+      icons: {
+        marginTop: hp(2.5),
+        flexDirection: 'row',
+        justifyContent: 'center',
+        alignItems: 'center',
+        gap: 18,
+      },
+      listStyle: {
+        paddingTop: 20,
+        paddingHorizontal: wp(4),
+      },
+      noPosts: {
+        fontSize: hp(2),
+        textAlign: 'center',
+        color: 'white',
+      },
+      pill: {
+        position: 'absolute',
+        right: -10,
+        top: -4,
+        height: hp(2.2),
+        width: hp(2.2),
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderRadius: 20,
+        backgroundColor: theme.colors.roseLight,
+      },
+      pillText: {
+        color: 'white',
+        fontSize: hp(1.2),
+        fontWeight: theme.fonts.bold,
+      },
+      pickerContainer: {
+        marginHorizontal: wp(4),
+        marginBottom: 10,
+        backgroundColor: theme.colors.background,
+        borderRadius: 10,
+    },
+    picker: {
+        height: 50,
+        color: 'white',
+    },
+    floatingButton: {
+      position: 'absolute',
+      bottom: hp(3), 
+      right: wp(5), 
+      backgroundColor: 'rgba(0, 0, 0, 0.6)', 
+      padding: hp(1.5), 
+      borderRadius: 50, 
+      zIndex: 10, 
+    },
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    modalContent: {
+      width: wp(80),
+      padding: hp(3),
+      backgroundColor: 'white',
+      borderRadius: 10,
+      alignItems: 'center',
+    },
+    modalTitle: {
+      fontSize: hp(2.5),
+      fontWeight: 'bold',
+      marginBottom: hp(1),
+    },
+    categoryOption: {
+      padding: hp(1),
+      width: '100%',
+      alignItems: 'center',
+    },
+    categoryText: {
+      fontSize: hp(2),
+      color: 'black',
+    },
+    closeButton: {
+      marginTop: hp(2),
+      paddingHorizontal: hp(2),
+      paddingVertical: hp(1),
+      backgroundColor: '#0083f7',
+      borderRadius: 5,
+    },
+    closeButtonText: {
+      color: 'white',
+    },
+    });
